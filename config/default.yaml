@@ -13,7 +13,7 @@ vad:
   max_silence_ms: 1500     # end-of-speech silence window
 
 stt:
-  model: "mlx-community/whisper-small-mlx-q4"
+  model: "mlx-community/whisper-large-v3-turbo"
   language: "en"
 
 llm:
