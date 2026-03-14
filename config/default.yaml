@@ -10,7 +10,7 @@ audio:
 vad:
   threshold: 0.5           # Silero confidence threshold (0–1)
   min_speech_ms: 250       # ignore bursts shorter than this
-  max_silence_ms: 800      # end-of-speech silence window
+  max_silence_ms: 1500     # end-of-speech silence window
 
 stt:
   model: "mlx-community/whisper-small-mlx-q4"
