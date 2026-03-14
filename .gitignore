@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.env
+
+# uv
+uv.lock
+
+# Models cache (large binary files — download on first run)
+models/
+*.gguf
+*.safetensors
+*.bin
+*.onnx
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs / runtime
+*.log
