@@ -7,6 +7,7 @@ Each stage is timed and logged. Pass --dev to the CLI for verbose output.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Iterator, Optional
 
@@ -21,6 +22,25 @@ from .tts.kokoro import KokoroTTS
 from .vad.silero import SileroVAD
 
 log = logging.getLogger(__name__)
+
+
+_SYMBOL_MAP = [
+    (r"\$(\d+(?:\.\d+)?)", r"\1 dollars"),
+    (r"(\d+)%", r"\1 percent"),
+    (r"(\d+)x\b", r"\1 times"),
+    (r"\b(\d+)\s*:\s*(\d+)\b", r"\1 \2"),   # e.g. 3:15 -> "3 15" (TTS reads naturally)
+    (r"&", " and "),
+    (r"[*_`#]", ""),                          # markdown symbols
+    (r"\[([^\]]+)\]\([^)]+\)", r"\1"),        # [text](url) -> text
+    (r"  +", " "),
+]
+
+
+def _prep_for_tts(text: str) -> str:
+    """Strip markdown and expand symbols so TTS reads naturally."""
+    for pattern, replacement in _SYMBOL_MAP:
+        text = re.sub(pattern, replacement, text)
+    return text.strip()
 
 
 class Timer:
@@ -64,6 +84,7 @@ class Pipeline:
             draft_model=settings.llm.draft_model,
             max_tokens=settings.llm.max_tokens,
             temperature=settings.llm.temperature,
+            top_p=settings.llm.top_p,
             system_prompt=settings.llm.system_prompt,
         )
         self.tts = KokoroTTS(
@@ -133,6 +154,7 @@ class Pipeline:
         log.info("Stark: %s", response)
 
         # ── TTS + playback ────────────────────────────────────────────────────
+        tts_text = _prep_for_tts(response)
         with Timer("TTS", self.dev):
-            for audio_chunk in self.tts.stream(response):
+            for audio_chunk in self.tts.stream(tts_text):
                 sd.play(audio_chunk, samplerate=self.tts.sample_rate, blocking=True)

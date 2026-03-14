@@ -20,14 +20,16 @@ class LLMEngine:
         self,
         model: str,
         draft_model: Optional[str] = None,
-        max_tokens: int = 60,
-        temperature: float = 0.7,
+        max_tokens: int = 80,
+        temperature: float = 0.8,
+        top_p: float = 0.8,
         system_prompt: str = "",
     ) -> None:
         self.model_name = model
         self.draft_model_name = draft_model
         self.max_tokens = max_tokens
         self.temperature = temperature
+        self.top_p = top_p
         self.system_prompt = system_prompt
 
         self._model = None
@@ -92,7 +94,7 @@ class LLMEngine:
             tokenizer=self._tokenizer,
             prompt=prompt,
             max_tokens=self.max_tokens,
-            sampler=make_sampler(temp=self.temperature),
+            sampler=make_sampler(temp=self.temperature, top_p=self.top_p),
         )
 
         if self._draft_model is not None:

@@ -33,12 +33,10 @@ class STTConfig(BaseModel):
 class LLMConfig(BaseModel):
     model: str = "mlx-community/Qwen2.5-3B-Instruct-4bit"
     draft_model: str = "mlx-community/Qwen2.5-0.5B-Instruct-4bit"
-    max_tokens: int = 60
-    temperature: float = 0.7
-    system_prompt: str = (
-        "You are Stark, a sharp and direct voice assistant. "
-        "Keep responses concise — 1-3 sentences max. No filler words."
-    )
+    max_tokens: int = 80
+    temperature: float = 0.8
+    top_p: float = 0.8
+    system_prompt: str = ""  # loaded from default.yaml
 
     @field_validator("system_prompt")
     @classmethod
