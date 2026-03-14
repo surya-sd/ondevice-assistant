@@ -36,6 +36,7 @@ class LLMConfig(BaseModel):
     max_tokens: int = 80
     temperature: float = 0.8
     top_p: float = 0.8
+    history_turns: int = 20  # rolling window of exchanges to keep in context
     system_prompt: str = ""  # loaded from default.yaml
 
     @field_validator("system_prompt")

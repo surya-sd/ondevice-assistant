@@ -86,6 +86,7 @@ class Pipeline:
             temperature=settings.llm.temperature,
             top_p=settings.llm.top_p,
             system_prompt=settings.llm.system_prompt,
+            history_turns=settings.llm.history_turns,
         )
         self.tts = KokoroTTS(
             voice=settings.tts.voice,
