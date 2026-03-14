@@ -73,6 +73,7 @@ class LLMEngine:
         """
         self._ensure_loaded()
         from mlx_lm import stream_generate
+        from mlx_lm.sample_utils import make_sampler
 
         system = self._build_system_prompt(context)
         messages = [
@@ -91,7 +92,7 @@ class LLMEngine:
             tokenizer=self._tokenizer,
             prompt=prompt,
             max_tokens=self.max_tokens,
-            temp=self.temperature,
+            sampler=make_sampler(temp=self.temperature),
         )
 
         if self._draft_model is not None:

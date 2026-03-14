@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import urllib.request
+from pathlib import Path
 from typing import Iterator
 
 import numpy as np
@@ -10,14 +12,36 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 _SAMPLE_RATE = 24000  # Kokoro outputs 24kHz
+_CACHE_DIR = Path.home() / ".cache" / "stark" / "kokoro"
+_MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx"
+_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.bin"
+
+
+def _ensure_model_files() -> tuple[Path, Path]:
+    """Download Kokoro model files to ~/.cache/stark/kokoro/ if not present."""
+    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    model_path = _CACHE_DIR / "kokoro-v0_19.onnx"
+    voices_path = _CACHE_DIR / "voices.bin"
+
+    if not model_path.exists():
+        log.info("Downloading Kokoro model (~80MB)…")
+        urllib.request.urlretrieve(_MODEL_URL, model_path)
+        log.info("Kokoro model downloaded.")
+
+    if not voices_path.exists():
+        log.info("Downloading Kokoro voices (~25MB)…")
+        urllib.request.urlretrieve(_VOICES_URL, voices_path)
+        log.info("Kokoro voices downloaded.")
+
+    return model_path, voices_path
 
 
 class KokoroTTS:
     """
     Wraps kokoro-onnx for low-latency TTS on Apple Silicon.
 
-    Audio is generated sentence-by-sentence and yielded as float32
-    numpy arrays at 24kHz so the pipeline can begin playback immediately.
+    Model files are cached in ~/.cache/stark/kokoro/ and downloaded
+    automatically on first use.
     """
 
     def __init__(
@@ -38,8 +62,9 @@ class KokoroTTS:
     def load(self) -> None:
         from kokoro_onnx import Kokoro
 
+        model_path, voices_path = _ensure_model_files()
         log.info("Loading Kokoro TTS model…")
-        self._kokoro = Kokoro("kokoro-v0_19.onnx", "voices.bin")
+        self._kokoro = Kokoro(str(model_path), str(voices_path))
         log.info("Kokoro TTS ready.")
 
     def _ensure_loaded(self) -> None:
