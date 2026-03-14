@@ -98,6 +98,7 @@ class Pipeline:
     def load(self) -> None:
         """Pre-load all models so first response isn't slow."""
         log.info("Loading models…")
+        self.stt.load()
         self.llm.load()
         self.tts.load()
         log.info("All models loaded. Listening…")

@@ -21,11 +21,27 @@ class WhisperSTT:
         self.language = language
         self._loaded = False
 
+    def load(self) -> None:
+        """Pre-load and warm up the Whisper model."""
+        if self._loaded:
+            return
+        import mlx_whisper
+        import numpy as np
+
+        log.info("Loading STT: %s", self.model_name)
+        # Run a silent pass to force model download + JIT compilation
+        mlx_whisper.transcribe(
+            np.zeros(16000, dtype=np.float32),
+            path_or_hf_repo=self.model_name,
+            language=self.language,
+            verbose=False,
+        )
+        self._loaded = True
+        log.info("STT ready.")
+
     def _ensure_loaded(self) -> None:
         if not self._loaded:
-            import mlx_whisper  # noqa: F401 — triggers model download on first import
-            self._loaded = True
-            log.info("mlx-whisper ready (model will download on first transcription if needed).")
+            self.load()
 
     def transcribe(self, audio: np.ndarray, sample_rate: int = 16000) -> str:
         """

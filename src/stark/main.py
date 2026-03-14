@@ -30,10 +30,9 @@ def _setup_logging(dev: bool) -> None:
         format="%(message)s",
         handlers=[RichHandler(console=console, show_path=dev, markup=True)],
     )
-    # Silence noisy third-party loggers unless in dev mode
-    if not dev:
-        for name in ("httpx", "httpcore", "urllib3", "filelock", "huggingface_hub"):
-            logging.getLogger(name).setLevel(logging.WARNING)
+    # Always silence HTTP internals — they're never useful in this context
+    for name in ("httpx", "httpcore", "urllib3", "filelock", "huggingface_hub"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 @app.command()
