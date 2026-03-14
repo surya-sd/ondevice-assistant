@@ -105,5 +105,9 @@ class LLMEngine:
 
     def _build_system_prompt(self, context: Optional[str]) -> str:
         if context and context.strip():
-            return f"{self.system_prompt}\n\nActive context: {context.strip()}"
+            return (
+                f"{self.system_prompt}\n\n"
+                f"[Background: user is currently in {context.strip()}. "
+                f"Use this silently for relevance only — never mention it unless asked.]"
+            )
         return self.system_prompt
