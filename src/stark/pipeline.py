@@ -36,6 +36,12 @@ _SYMBOL_MAP = [
 ]
 
 
+def _is_sentence_end(text: str) -> bool:
+    """Return True when text ends with a natural spoken sentence boundary."""
+    stripped = text.rstrip()
+    return bool(stripped) and stripped[-1] in ".!?…"
+
+
 def _prep_for_tts(text: str) -> str:
     """Strip markdown and expand symbols so TTS reads naturally."""
     for pattern, replacement in _SYMBOL_MAP:
@@ -145,18 +151,43 @@ class Pipeline:
 
         log.info("You: %s", text)
 
-        # ── LLM ──────────────────────────────────────────────────────────────
-        with Timer("LLM", self.dev):
-            response = self.llm.generate(text, context=active_context)
+        # ── LLM → TTS pipeline (streamed, sentence by sentence) ──────────────
+        # As soon as a sentence boundary is detected in the LLM stream, send it
+        # to TTS immediately — don't wait for the full response to finish.
+        full_response: list[str] = []
+        sentence_buf = ""
+        first_audio = True
 
-        if not response:
+        llm_timer = Timer("LLM first sentence", self.dev)
+        llm_timer.__enter__()
+
+        for token in self.llm.stream(text, context=active_context):
+            sentence_buf += token
+            full_response.append(token)
+
+            if _is_sentence_end(sentence_buf):
+                if first_audio:
+                    llm_timer.__exit__(None, None, None)
+                    first_audio = False
+
+                sentence = _prep_for_tts(sentence_buf.strip())
+                sentence_buf = ""
+
+                if sentence:
+                    with Timer("TTS sentence", self.dev):
+                        for audio_chunk in self.tts.stream(sentence):
+                            sd.play(audio_chunk, samplerate=self.tts.sample_rate, blocking=True)
+
+        # flush any remaining text after the last sentence boundary
+        remainder = _prep_for_tts(sentence_buf.strip())
+        if remainder:
+            with Timer("TTS remainder", self.dev):
+                for audio_chunk in self.tts.stream(remainder):
+                    sd.play(audio_chunk, samplerate=self.tts.sample_rate, blocking=True)
+
+        response = "".join(full_response)
+        if not response.strip():
             log.debug("Empty LLM response — skipping.")
             return
 
-        log.info("Stark: %s", response)
-
-        # ── TTS + playback ────────────────────────────────────────────────────
-        tts_text = _prep_for_tts(response)
-        with Timer("TTS", self.dev):
-            for audio_chunk in self.tts.stream(tts_text):
-                sd.play(audio_chunk, samplerate=self.tts.sample_rate, blocking=True)
+        log.info("Stark: %s", response.strip())
