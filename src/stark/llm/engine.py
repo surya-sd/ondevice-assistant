@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from typing import Iterator, Optional
+from typing import Iterator, List, Optional
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +44,10 @@ class LLMEngine:
         self._draft_model = None
         self._draft_tokenizer = None
 
+        # KV cache — persists across turns so only new tokens are processed
+        self._kv_cache = None
+        self._cached_tokens: int = 0
+
     def load(self) -> None:
         """Explicitly load models into memory (call once at startup)."""
         from mlx_lm import load
@@ -51,10 +55,13 @@ class LLMEngine:
         log.info("Loading LLM: %s", self.model_name)
         self._model, self._tokenizer = load(self.model_name)
 
-        if self.draft_model_name:
+        if self.draft_model_name and self.draft_model_name.strip():
             log.info("Loading draft model: %s", self.draft_model_name)
             self._draft_model, self._draft_tokenizer = load(self.draft_model_name)
 
+        from mlx_lm.models.cache import make_prompt_cache
+        self._kv_cache = make_prompt_cache(self._model)
+        self._cached_tokens = 0
         log.info("LLM ready.")
 
     def _ensure_loaded(self) -> None:
@@ -70,8 +77,8 @@ class LLMEngine:
         """
         Stream generated tokens for user_text.
 
-        Appends the user turn to history before generating, then appends
-        the completed assistant response so future turns have full context.
+        Uses a persistent KV cache — only the new tokens (current user message)
+        are processed each turn instead of re-processing the full history.
         Yields string fragments as they are produced.
         """
         self._ensure_loaded()
@@ -83,36 +90,52 @@ class LLMEngine:
         system = self._build_system_prompt(context)
         messages = [{"role": "system", "content": system}, *self._history]
 
-        prompt = self._tokenizer.apply_chat_template(
+        full_prompt = self._tokenizer.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
+        )
+        full_tokens: List[int] = self._tokenizer.encode(full_prompt)
+
+        # Only pass tokens the model hasn't seen yet in this cache
+        new_tokens = full_tokens[self._cached_tokens:]
+
+        log.debug(
+            "LLM: %d cached + %d new tokens (%d turns)",
+            self._cached_tokens, len(new_tokens), len(messages),
         )
 
         kwargs = dict(
             model=self._model,
             tokenizer=self._tokenizer,
-            prompt=prompt,
+            prompt=new_tokens,
             max_tokens=self.max_tokens,
             sampler=make_sampler(temp=self.temperature, top_p=self.top_p),
+            prompt_cache=self._kv_cache,
         )
 
         if self._draft_model is not None:
             kwargs["draft_model"] = self._draft_model
 
-        log.debug("LLM prompt turns: %d", len(messages))
-
         collected = []
+        n_generated = 0
         for chunk in stream_generate(**kwargs):
             collected.append(chunk.text)
+            n_generated += 1
             yield chunk.text
 
-        # Store completed assistant response in history
-        self._history.append({"role": "assistant", "content": "".join(collected)})
+        response = "".join(collected)
+        self._history.append({"role": "assistant", "content": response})
+        # Cache now holds: previously cached tokens + new prompt tokens + generated tokens
+        self._cached_tokens = len(full_tokens) + n_generated
 
     def clear_history(self) -> None:
-        """Wipe conversation history — starts a fresh session."""
+        """Wipe conversation history and reset KV cache — starts a fresh session."""
         self._history.clear()
+        if self._model is not None:
+            from mlx_lm.models.cache import make_prompt_cache
+            self._kv_cache = make_prompt_cache(self._model)
+        self._cached_tokens = 0
         log.info("Conversation history cleared.")
 
     def _build_system_prompt(self, context: Optional[str]) -> str:
