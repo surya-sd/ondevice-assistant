@@ -64,6 +64,12 @@ tts:
   speed: 0.95
   lang: "en-us"
 
+tone:
+  enabled: true
+  rms_loud_threshold: 0.05        # RMS >= this → "loud" (tune per mic)
+  speech_rate_fast_threshold: 2.5 # words/sec >= this → "fast"
+  min_words: 3                    # utterances shorter than this stay "neutral"
+
 context:
   enabled: true            # AXUIElement active-window context
   include_in_prompt: true  # prepend active app/window to system prompt

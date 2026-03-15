@@ -72,26 +72,28 @@ class KokoroTTS:
         if self._kokoro is None:
             self.load()
 
-    def synthesize(self, text: str) -> np.ndarray:
+    def synthesize(self, text: str, speed: float | None = None) -> np.ndarray:
         """Synthesize text → float32 audio array at 24kHz."""
-        chunks = list(self.stream(text))
+        chunks = list(self.stream(text, speed=speed))
         if not chunks:
             return np.array([], dtype=np.float32)
         return np.concatenate(chunks)
 
-    def stream(self, text: str) -> Iterator[np.ndarray]:
+    def stream(self, text: str, speed: float | None = None) -> Iterator[np.ndarray]:
         """
         Stream audio chunks as Kokoro processes each sentence.
 
         Yields float32 numpy arrays (24kHz) — play them while the next
         sentence is being synthesized to minimise perceived latency.
+
+        speed overrides self.speed for this call only (used by tone adaptation).
         """
         self._ensure_loaded()
 
         samples, sr = self._kokoro.create(
             text,
             voice=self.voice,
-            speed=self.speed,
+            speed=speed if speed is not None else self.speed,
             lang=self.lang,
         )
         # kokoro-onnx returns the full audio in one call;

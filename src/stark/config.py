@@ -54,6 +54,13 @@ class TTSConfig(BaseModel):
     lang: str = "en-us"
 
 
+class ToneConfig(BaseModel):
+    enabled: bool = True
+    rms_loud_threshold: float = 0.05
+    speech_rate_fast_threshold: float = 2.5
+    min_words: int = 3
+
+
 class ContextConfig(BaseModel):
     enabled: bool = True
     include_in_prompt: bool = True
@@ -67,6 +74,7 @@ class Settings(BaseSettings):
     stt: STTConfig = STTConfig()
     llm: LLMConfig = LLMConfig()
     tts: TTSConfig = TTSConfig()
+    tone: ToneConfig = ToneConfig()
     context: ContextConfig = ContextConfig()
 
     @classmethod

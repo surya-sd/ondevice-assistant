@@ -71,12 +71,22 @@ class LLMEngine:
         if self._model is None:
             self.load()
 
-    def generate(self, user_text: str, context: Optional[str] = None) -> str:
+    def generate(
+        self,
+        user_text: str,
+        context: Optional[str] = None,
+        tone_hint: Optional[str] = None,
+    ) -> str:
         """Generate a response, returning the full string and updating history."""
-        response = "".join(self.stream(user_text, context=context))
+        response = "".join(self.stream(user_text, context=context, tone_hint=tone_hint))
         return response
 
-    def stream(self, user_text: str, context: Optional[str] = None) -> Iterator[str]:
+    def stream(
+        self,
+        user_text: str,
+        context: Optional[str] = None,
+        tone_hint: Optional[str] = None,
+    ) -> Iterator[str]:
         """
         Stream generated tokens for user_text.
 
@@ -88,7 +98,13 @@ class LLMEngine:
         from mlx_lm import stream_generate
         from mlx_lm.sample_utils import make_sampler
 
-        self._history.append({"role": "user", "content": user_text})
+        # Prepend tone hint to user content (not system prompt) to keep KV cache valid.
+        # The system prompt must stay constant across turns for cache correctness.
+        effective_content = user_text
+        if tone_hint and tone_hint.strip():
+            effective_content = f"{tone_hint}\n{user_text}"
+
+        self._history.append({"role": "user", "content": effective_content})
 
         system = self._build_system_prompt(context)
         messages = [{"role": "system", "content": system}, *self._history]

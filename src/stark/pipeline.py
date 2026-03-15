@@ -19,6 +19,7 @@ from .config import Settings
 from .context.macos import MacOSContext
 from .llm.engine import LLMEngine
 from .stt.whisper import WhisperSTT
+from .tone.analyzer import ToneAnalyzer
 from .tts.kokoro import KokoroTTS
 from .vad.silero import SileroVAD
 
@@ -101,6 +102,12 @@ class Pipeline:
             lang=settings.tts.lang,
         )
         self.context = MacOSContext() if settings.context.enabled else None
+        self.tone_analyzer = ToneAnalyzer(
+            base_speed=settings.tts.speed,
+            rms_loud_threshold=settings.tone.rms_loud_threshold,
+            speech_rate_fast_threshold=settings.tone.speech_rate_fast_threshold,
+            min_words=settings.tone.min_words,
+        ) if settings.tone.enabled else None
 
     _HISTORY_PATH = Path.home() / ".cache" / "stark" / "history.json"
 
@@ -163,6 +170,19 @@ class Pipeline:
 
         log.info("You: %s", text)
 
+        # ── Tone analysis ─────────────────────────────────────────────────────
+        tone = None
+        if self.tone_analyzer is not None:
+            tone = self.tone_analyzer.analyze(audio, text, self.cfg.audio.sample_rate)
+            if self.dev:
+                log.info(
+                    "[tone] state=%s rms=%.4f wps=%.2f speed=%.2f",
+                    tone.state, tone.rms, tone.speech_rate, tone.tts_speed,
+                )
+
+        tone_hint = tone.llm_hint if tone else None
+        tts_speed = tone.tts_speed if tone else None
+
         # ── LLM → TTS pipeline (streamed, sentence by sentence) ──────────────
         # As soon as a sentence boundary is detected in the LLM stream, send it
         # to TTS immediately — don't wait for the full response to finish.
@@ -173,7 +193,7 @@ class Pipeline:
         llm_timer = Timer("LLM first sentence", self.dev)
         llm_timer.__enter__()
 
-        for token in self.llm.stream(text, context=active_context):
+        for token in self.llm.stream(text, context=active_context, tone_hint=tone_hint):
             sentence_buf += token
             full_response.append(token)
 
@@ -187,14 +207,14 @@ class Pipeline:
 
                 if sentence:
                     with Timer("TTS sentence", self.dev):
-                        for audio_chunk in self.tts.stream(sentence):
+                        for audio_chunk in self.tts.stream(sentence, speed=tts_speed):
                             sd.play(audio_chunk, samplerate=self.tts.sample_rate, blocking=True)
 
         # flush any remaining text after the last sentence boundary
         remainder = _prep_for_tts(sentence_buf.strip())
         if remainder:
             with Timer("TTS remainder", self.dev):
-                for audio_chunk in self.tts.stream(remainder):
+                for audio_chunk in self.tts.stream(remainder, speed=tts_speed):
                     sd.play(audio_chunk, samplerate=self.tts.sample_rate, blocking=True)
 
         response = "".join(full_response)
