@@ -1,0 +1,4 @@
+# Local overrides — git-ignored, tune these per machine/mic
+
+tone:
+  rms_loud_threshold: 0.025
