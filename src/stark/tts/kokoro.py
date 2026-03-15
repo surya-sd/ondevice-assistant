@@ -13,24 +13,25 @@ log = logging.getLogger(__name__)
 
 _SAMPLE_RATE = 24000  # Kokoro outputs 24kHz
 _CACHE_DIR = Path.home() / ".cache" / "stark" / "kokoro"
-_MODEL_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/kokoro-v0_19.onnx"
-_VOICES_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files/voices.bin"
+_BASE_URL = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+_MODEL_FILE = "kokoro-v1.0.fp16.onnx"   # fp16 — best quality on Apple Silicon
+_VOICES_FILE = "voices-v1.0.bin"
 
 
 def _ensure_model_files() -> tuple[Path, Path]:
-    """Download Kokoro model files to ~/.cache/stark/kokoro/ if not present."""
+    """Download Kokoro v1.0 model files to ~/.cache/stark/kokoro/ if not present."""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    model_path = _CACHE_DIR / "kokoro-v0_19.onnx"
-    voices_path = _CACHE_DIR / "voices.bin"
+    model_path = _CACHE_DIR / _MODEL_FILE
+    voices_path = _CACHE_DIR / _VOICES_FILE
 
     if not model_path.exists():
-        log.info("Downloading Kokoro model (~80MB)…")
-        urllib.request.urlretrieve(_MODEL_URL, model_path)
+        log.info("Downloading Kokoro v1.0 model (~169MB)…")
+        urllib.request.urlretrieve(f"{_BASE_URL}/{_MODEL_FILE}", model_path)
         log.info("Kokoro model downloaded.")
 
     if not voices_path.exists():
-        log.info("Downloading Kokoro voices (~25MB)…")
-        urllib.request.urlretrieve(_VOICES_URL, voices_path)
+        log.info("Downloading Kokoro v1.0 voices (~27MB)…")
+        urllib.request.urlretrieve(f"{_BASE_URL}/{_VOICES_FILE}", voices_path)
         log.info("Kokoro voices downloaded.")
 
     return model_path, voices_path

@@ -58,7 +58,7 @@ llm:
 
 tts:
   model: "kokoro"          # kokoro-onnx model identifier
-  voice: "af_sarah"        # default Kokoro voice (af_sarah, af_bella, af_sky, am_michael)
+  voice: "af_heart"        # kokoro v1.0 voices: af_heart, af_nova, af_river, af_jessica, am_liam, am_echo
   speed: 0.95
   lang: "en-us"
 
