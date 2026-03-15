@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import deque
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterator, List, Optional
 
 log = logging.getLogger(__name__)
@@ -128,6 +131,39 @@ class LLMEngine:
         self._history.append({"role": "assistant", "content": response})
         # Cache now holds: previously cached tokens + new prompt tokens + generated tokens
         self._cached_tokens = len(full_tokens) + n_generated
+
+    def save_history(self, path: Path) -> None:
+        """Persist conversation history to a JSON file."""
+        if not self._history:
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+            "turns": list(self._history),
+        }
+        path.write_text(json.dumps(payload, indent=2))
+        log.info("History saved (%d messages) → %s", len(self._history), path)
+
+    def load_history(self, path: Path, max_age_hours: int = 24) -> None:
+        """Reload history from a JSON file if it is recent enough."""
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text())
+            saved_at = datetime.fromisoformat(payload["saved_at"])
+            age_hours = (datetime.now(timezone.utc) - saved_at).total_seconds() / 3600
+            if age_hours > max_age_hours:
+                log.info("History too old (%.1f h > %d h) — ignoring.", age_hours, max_age_hours)
+                return
+            turns = payload.get("turns", [])
+            self._history.clear()
+            for msg in turns:
+                self._history.append(msg)
+            # Reset cache counter — first real turn will do a full prefill.
+            self._cached_tokens = 0
+            log.info("History restored (%d messages, %.1f h old).", len(self._history), age_hours)
+        except Exception as exc:
+            log.warning("Could not load history from %s: %s", path, exc)
 
     def clear_history(self) -> None:
         """Wipe conversation history and reset KV cache — starts a fresh session."""

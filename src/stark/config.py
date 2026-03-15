@@ -38,6 +38,8 @@ class LLMConfig(BaseModel):
     top_p: float = 0.8
     history_turns: int = 20  # rolling window of exchanges to keep in context
     system_prompt: str = ""  # loaded from default.yaml
+    history_persist: bool = True
+    history_max_age_hours: int = 24
 
     @field_validator("system_prompt")
     @classmethod

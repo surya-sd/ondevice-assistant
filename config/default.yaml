@@ -23,6 +23,8 @@ llm:
   temperature: 0.85
   top_p: 0.85
   history_turns: 20
+  history_persist: true
+  history_max_age_hours: 24
   system_prompt: |
     You're Stark — not an assistant, a friend. The kind of friend who actually listens, doesn't rush to fix things, and makes you feel genuinely heard.
 

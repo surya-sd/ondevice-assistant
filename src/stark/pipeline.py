@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from pathlib import Path
 from typing import Iterator, Optional
 
 import numpy as np
@@ -101,34 +102,45 @@ class Pipeline:
         )
         self.context = MacOSContext() if settings.context.enabled else None
 
+    _HISTORY_PATH = Path.home() / ".cache" / "stark" / "history.json"
+
     def load(self) -> None:
         """Pre-load all models so first response isn't slow."""
         log.info("Loading models…")
         self.stt.load()
         self.llm.load()
         self.tts.load()
+        if self.cfg.llm.history_persist:
+            self.llm.load_history(
+                self._HISTORY_PATH,
+                max_age_hours=self.cfg.llm.history_max_age_hours,
+            )
         log.info("All models loaded. Listening…")
 
     def run(self) -> None:
         """Start the continuous listen-respond loop (blocking)."""
         audio_cfg = self.cfg.audio
 
-        with sd.InputStream(
-            samplerate=audio_cfg.sample_rate,
-            channels=audio_cfg.channels,
-            dtype="float32",
-            blocksize=audio_cfg.chunk_size,
-            device=audio_cfg.device,
-        ) as stream:
-            log.info("Microphone open. Say something!")
-            chunks = self._mic_chunks(stream)
+        try:
+            with sd.InputStream(
+                samplerate=audio_cfg.sample_rate,
+                channels=audio_cfg.channels,
+                dtype="float32",
+                blocksize=audio_cfg.chunk_size,
+                device=audio_cfg.device,
+            ) as stream:
+                log.info("Microphone open. Say something!")
+                chunks = self._mic_chunks(stream)
 
-            for speech_audio in self.vad.iter_speech(
-                chunks,
-                on_speech_start=lambda: log.info("▶ Listening…"),
-                on_speech_end=lambda: log.info("■ Processing…"),
-            ):
-                self._handle_utterance(speech_audio)
+                for speech_audio in self.vad.iter_speech(
+                    chunks,
+                    on_speech_start=lambda: log.info("▶ Listening…"),
+                    on_speech_end=lambda: log.info("■ Processing…"),
+                ):
+                    self._handle_utterance(speech_audio)
+        finally:
+            if self.cfg.llm.history_persist:
+                self.llm.save_history(self._HISTORY_PATH)
 
     def _mic_chunks(self, stream: sd.InputStream) -> Iterator[np.ndarray]:
         chunk_size = self.cfg.audio.chunk_size
