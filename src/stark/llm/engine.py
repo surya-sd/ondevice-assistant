@@ -148,6 +148,41 @@ class LLMEngine:
         # Cache now holds: previously cached tokens + new prompt tokens + generated tokens
         self._cached_tokens = len(full_tokens) + n_generated
 
+    def stream_ephemeral(self, prompt: str) -> Iterator[str]:
+        """
+        Stream a one-off response without touching conversation history or the KV cache.
+
+        Used for proactive check-ins — generates a reply to `prompt` as if it were a
+        fresh single-turn conversation, then discards all state. The main cache and
+        history remain untouched so the next real user turn is unaffected.
+        """
+        self._ensure_loaded()
+        from mlx_lm import stream_generate
+        from mlx_lm.models.cache import make_prompt_cache
+        from mlx_lm.sample_utils import make_sampler
+
+        messages = [
+            {"role": "system", "content": self.system_prompt},
+            {"role": "user", "content": prompt},
+        ]
+        full_prompt = self._tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        tokens = self._tokenizer.encode(full_prompt)
+        temp_cache = make_prompt_cache(self._model)
+
+        for chunk in stream_generate(
+            model=self._model,
+            tokenizer=self._tokenizer,
+            prompt=tokens,
+            max_tokens=self.max_tokens,
+            sampler=make_sampler(temp=self.temperature, top_p=self.top_p),
+            prompt_cache=temp_cache,
+        ):
+            yield chunk.text
+
     def save_history(self, path: Path) -> None:
         """Persist conversation history to a JSON file."""
         if not self._history:

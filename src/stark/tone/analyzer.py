@@ -24,11 +24,12 @@ _STATE_MAP: dict[str, tuple[float, str]] = {
 
 @dataclass
 class ToneReading:
-    state: str          # excited | stressed | anxious | low | neutral
-    tts_speed: float    # absolute speed value to pass to TTS
-    llm_hint: str       # injected text; empty string for neutral
-    rms: float          # raw RMS value (for debug logging)
-    speech_rate: float  # raw words-per-second value (for debug logging)
+    state: str           # excited | stressed | anxious | low | neutral
+    tts_speed: float     # absolute speed value to pass to TTS
+    llm_hint: str        # injected text; empty string for neutral
+    rms: float           # raw RMS value (for debug logging)
+    speech_rate: float   # raw words-per-second value (for debug logging)
+    smoothed_rate: float # EMA-smoothed speech rate (for debug logging)
 
 
 class ToneAnalyzer:
@@ -41,6 +42,9 @@ class ToneAnalyzer:
 
     Combined into a 2x2 grid: loud×fast=excited, loud×slow=stressed,
     quiet×fast=anxious, quiet×slow=low.
+
+    TTS speed adapts over time via an EMA of the user's speech rate, so Stark
+    gradually mirrors the user's natural speaking pace across turns.
     """
 
     def __init__(
@@ -49,11 +53,23 @@ class ToneAnalyzer:
         rms_loud_threshold: float = 0.05,
         speech_rate_fast_threshold: float = 2.5,
         min_words: int = 3,
+        ema_alpha: float = 0.35,
+        pace_speed_min: float = 0.82,
+        pace_speed_max: float = 1.15,
+        pace_rate_slow: float = 1.0,
+        pace_rate_fast: float = 3.5,
     ) -> None:
         self.base_speed = base_speed
         self.rms_loud_threshold = rms_loud_threshold
         self.speech_rate_fast_threshold = speech_rate_fast_threshold
         self.min_words = min_words
+        self.ema_alpha = ema_alpha
+        self.pace_speed_min = pace_speed_min
+        self.pace_speed_max = pace_speed_max
+        self.pace_rate_slow = pace_rate_slow
+        self.pace_rate_fast = pace_rate_fast
+        # EMA initialised to the midpoint of the pace range (neutral baseline)
+        self._smoothed_rate: float = (pace_rate_slow + pace_rate_fast) / 2.0
 
     def analyze(
         self,
@@ -62,25 +78,37 @@ class ToneAnalyzer:
         sample_rate: int,
     ) -> ToneReading:
         if audio is None or len(audio) == 0 or not text.strip():
-            return ToneReading("neutral", self.base_speed, "", 0.0, 0.0)
+            return ToneReading("neutral", self.base_speed, "", 0.0, 0.0, self._smoothed_rate)
 
         rms = self._compute_rms(audio)
         speech_rate = self._compute_speech_rate(text, audio, sample_rate)
         word_count = len(text.split())
         state = self._classify(rms, speech_rate, word_count)
 
+        # Update EMA only for utterances long enough to be meaningful
+        if word_count >= self.min_words:
+            self._smoothed_rate = (
+                self.ema_alpha * speech_rate
+                + (1.0 - self.ema_alpha) * self._smoothed_rate
+            )
+
         multiplier, llm_hint = _STATE_MAP[state]
-        if state == "neutral":
-            tts_speed = self.base_speed
-        else:
-            raw = self.base_speed * multiplier
-            tts_speed = max(_SPEED_MIN, min(_SPEED_MAX, raw))
+        pace_speed = self._pace_speed()
+        raw = pace_speed * multiplier
+        tts_speed = max(_SPEED_MIN, min(_SPEED_MAX, raw))
 
         log.debug(
-            "[tone] state=%s rms=%.4f wps=%.2f speed=%.2f",
-            state, rms, speech_rate, tts_speed,
+            "[tone] state=%s rms=%.4f wps=%.2f smoothed=%.2f pace_speed=%.2f speed=%.2f",
+            state, rms, speech_rate, self._smoothed_rate, pace_speed, tts_speed,
         )
-        return ToneReading(state, tts_speed, llm_hint, rms, speech_rate)
+        return ToneReading(state, tts_speed, llm_hint, rms, speech_rate, self._smoothed_rate)
+
+    def _pace_speed(self) -> float:
+        """Map the EMA-smoothed speech rate to a TTS speed via linear interpolation."""
+        rate_range = self.pace_rate_fast - self.pace_rate_slow
+        t = (self._smoothed_rate - self.pace_rate_slow) / rate_range
+        t = max(0.0, min(1.0, t))
+        return self.pace_speed_min + t * (self.pace_speed_max - self.pace_speed_min)
 
     def _compute_rms(self, audio: np.ndarray) -> float:
         return float(np.sqrt(np.mean(audio.astype(np.float32) ** 2)))

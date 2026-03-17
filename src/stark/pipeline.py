@@ -82,6 +82,7 @@ class Pipeline:
             min_speech_ms=settings.vad.min_speech_ms,
             max_silence_ms=settings.vad.max_silence_ms,
             sample_rate=settings.audio.sample_rate,
+            heartbeat_s=settings.checkin.heartbeat_s,
         )
         self.stt = WhisperSTT(
             model=settings.stt.model,
@@ -107,6 +108,11 @@ class Pipeline:
             rms_loud_threshold=settings.tone.rms_loud_threshold,
             speech_rate_fast_threshold=settings.tone.speech_rate_fast_threshold,
             min_words=settings.tone.min_words,
+            ema_alpha=settings.tone.ema_alpha,
+            pace_speed_min=settings.tone.pace_speed_min,
+            pace_speed_max=settings.tone.pace_speed_max,
+            pace_rate_slow=settings.tone.pace_rate_slow,
+            pace_rate_fast=settings.tone.pace_rate_fast,
         ) if settings.tone.enabled else None
 
     _HISTORY_PATH = Path.home() / ".cache" / "stark" / "history.json"
@@ -127,6 +133,12 @@ class Pipeline:
     def run(self) -> None:
         """Start the continuous listen-respond loop (blocking)."""
         audio_cfg = self.cfg.audio
+        self._last_speech_time = time.time()
+        self._last_checkin_time = 0.0
+
+        def _on_speech_start() -> None:
+            self._last_speech_time = time.time()
+            log.info("▶ Listening…")
 
         try:
             with sd.InputStream(
@@ -139,15 +151,52 @@ class Pipeline:
                 log.info("Microphone open. Say something!")
                 chunks = self._mic_chunks(stream)
 
-                for speech_audio in self.vad.iter_speech(
+                for result in self.vad.iter_speech(
                     chunks,
-                    on_speech_start=lambda: log.info("▶ Listening…"),
+                    on_speech_start=_on_speech_start,
                     on_speech_end=lambda: log.info("■ Processing…"),
+                    chunk_size=audio_cfg.chunk_size,
                 ):
-                    self._handle_utterance(speech_audio)
+                    if result is None:
+                        self._maybe_checkin()
+                    else:
+                        self._handle_utterance(result)
         finally:
             if self.cfg.llm.history_persist:
                 self.llm.save_history(self._HISTORY_PATH)
+
+    def _maybe_checkin(self) -> None:
+        cfg = self.cfg.checkin
+        if not cfg.enabled:
+            return
+        now = time.time()
+        if now - self._last_speech_time < cfg.silence_threshold_s:
+            return
+        if now - self._last_checkin_time < cfg.cooldown_s:
+            return
+
+        self._last_checkin_time = now
+        silent_min = int((now - self._last_speech_time) / 60)
+        hint = (
+            f"[The user has been quiet for {silent_min} minute{'s' if silent_min != 1 else ''}. "
+            f"Gently check in — one warm sentence only. Don't ask more than one question.]"
+        )
+        log.info("Checking in after %dm of silence…", silent_min)
+
+        sentence_buf = ""
+        for token in self.llm.stream_ephemeral(hint):
+            sentence_buf += token
+            if _is_sentence_end(sentence_buf):
+                sentence = _prep_for_tts(sentence_buf.strip())
+                sentence_buf = ""
+                if sentence:
+                    for audio_chunk in self.tts.stream(sentence):
+                        sd.play(audio_chunk, samplerate=self.tts.sample_rate, blocking=True)
+
+        remainder = _prep_for_tts(sentence_buf.strip())
+        if remainder:
+            for audio_chunk in self.tts.stream(remainder):
+                sd.play(audio_chunk, samplerate=self.tts.sample_rate, blocking=True)
 
     def _mic_chunks(self, stream: sd.InputStream) -> Iterator[np.ndarray]:
         chunk_size = self.cfg.audio.chunk_size
@@ -176,8 +225,8 @@ class Pipeline:
             tone = self.tone_analyzer.analyze(audio, text, self.cfg.audio.sample_rate)
             if self.dev:
                 log.info(
-                    "[tone] state=%s rms=%.4f wps=%.2f speed=%.2f",
-                    tone.state, tone.rms, tone.speech_rate, tone.tts_speed,
+                    "[tone] state=%s rms=%.4f wps=%.2f smoothed=%.2f speed=%.2f",
+                    tone.state, tone.rms, tone.speech_rate, tone.smoothed_rate, tone.tts_speed,
                 )
 
         tone_hint = tone.llm_hint if tone else None

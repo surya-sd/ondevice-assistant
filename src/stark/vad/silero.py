@@ -27,11 +27,13 @@ class SileroVAD:
         min_speech_ms: int = 250,
         max_silence_ms: int = 800,
         sample_rate: int = 16000,
+        heartbeat_s: float = 5.0,
     ) -> None:
         self.threshold = threshold
         self.min_speech_samples = int(sample_rate * min_speech_ms / 1000)
         self.max_silence_samples = int(sample_rate * max_silence_ms / 1000)
         self.sample_rate = sample_rate
+        self.heartbeat_s = heartbeat_s
         self._model, self._utils = self._load_model()
 
     def _load_model(self):
@@ -62,15 +64,20 @@ class SileroVAD:
         chunks: Iterator[np.ndarray],
         on_speech_start: Callable[[], None] | None = None,
         on_speech_end: Callable[[], None] | None = None,
-    ) -> Iterator[np.ndarray]:
+        chunk_size: int = 512,
+    ) -> Iterator[np.ndarray | None]:
         """
         Yields complete speech segments (numpy float32 arrays) from a chunk iterator.
 
-        Each yielded array is one utterance — silence-padded on both sides is stripped.
+        Each yielded array is one utterance. Also yields None periodically when idle
+        (no speech detected) as a heartbeat tick — callers can use this to check for
+        prolonged silence without blocking indefinitely.
         """
         buffer: list[np.ndarray] = []
         silence_samples = 0
         in_speech = False
+        heartbeat_chunks = max(1, int(self.heartbeat_s * self.sample_rate / chunk_size))
+        idle_chunks = 0
 
         for chunk in chunks:
             score = self._score(chunk)
@@ -79,6 +86,7 @@ class SileroVAD:
             if is_speech:
                 if not in_speech:
                     in_speech = True
+                    idle_chunks = 0
                     if on_speech_start:
                         on_speech_start()
                 silence_samples = 0
@@ -97,6 +105,12 @@ class SileroVAD:
                         buffer = []
                         silence_samples = 0
                         in_speech = False
+                        idle_chunks = 0
+                else:
+                    idle_chunks += 1
+                    if idle_chunks >= heartbeat_chunks:
+                        idle_chunks = 0
+                        yield None  # heartbeat — no speech for heartbeat_s seconds
 
         # flush any remaining speech at end of stream
         if in_speech and buffer:

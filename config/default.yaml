@@ -69,6 +69,17 @@ tone:
   rms_loud_threshold: 0.05        # RMS >= this → "loud" (tune per mic)
   speech_rate_fast_threshold: 2.5 # words/sec >= this → "fast"
   min_words: 3                    # utterances shorter than this stay "neutral"
+  ema_alpha: 0.35                 # EMA smoothing factor for speech rate (0=frozen, 1=no memory)
+  pace_speed_min: 0.82            # TTS speed when user speaks very slowly
+  pace_speed_max: 1.15            # TTS speed when user speaks quickly
+  pace_rate_slow: 1.0             # wps considered slow end of range
+  pace_rate_fast: 3.5             # wps considered fast end of range
+
+checkin:
+  enabled: true
+  silence_threshold_s: 120        # seconds of silence before checking in (2 min)
+  cooldown_s: 300                 # minimum seconds between check-ins (5 min)
+  heartbeat_s: 5.0               # how often VAD emits an idle tick when no speech
 
 context:
   enabled: true            # AXUIElement active-window context

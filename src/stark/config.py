@@ -59,6 +59,18 @@ class ToneConfig(BaseModel):
     rms_loud_threshold: float = 0.05
     speech_rate_fast_threshold: float = 2.5
     min_words: int = 3
+    ema_alpha: float = 0.35
+    pace_speed_min: float = 0.82
+    pace_speed_max: float = 1.15
+    pace_rate_slow: float = 1.0
+    pace_rate_fast: float = 3.5
+
+
+class CheckinConfig(BaseModel):
+    enabled: bool = True
+    silence_threshold_s: int = 120  # seconds of silence before first check-in
+    cooldown_s: int = 300           # minimum seconds between check-ins
+    heartbeat_s: float = 5.0       # how often VAD emits an idle tick
 
 
 class ContextConfig(BaseModel):
@@ -75,6 +87,7 @@ class Settings(BaseSettings):
     llm: LLMConfig = LLMConfig()
     tts: TTSConfig = TTSConfig()
     tone: ToneConfig = ToneConfig()
+    checkin: CheckinConfig = CheckinConfig()
     context: ContextConfig = ContextConfig()
 
     @classmethod
